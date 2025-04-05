@@ -1,0 +1,98 @@
+# Importación de librerías
+from pathlib import Path
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+
+# 1. Lectura de datos desde el archivo Excel
+#ruta_archivo = Path("Datos-UV-Visible.xlsx")
+
+# Verificar las hojas disponibles
+archivo_excel = pd.ExcelFile("Datos-UV-Visible.xlsx")
+
+# Cargar las hojas necesarias
+datos_calibracion = pd.read_excel(ruta_archivo, sheet_name='UV- de calibracion')
+datos_muestra = pd.read_excel(ruta_archivo, sheet_name='UV- muestra')
+
+
+# Extraemos de datos de calibración
+absorbancias = []
+concentraciones = []
+
+tablas_calibracion = 7 
+for indice in range(tablas_calibracion):
+    columna_inicio = indice * 3
+    
+    # Ignoramos los encabezados y procesar solo valores numéricos
+    valores_absorbancia = datos_calibracion.iloc[1:, columna_inicio + 1].apply(pd.to_numeric, errors='coerce').dropna().values
+    absorbancias.append(valores_absorbancia)
+    nombre_columna = datos_calibracion.columns[columna_inicio + 1]
+    try:
+        # Extraemos la concentración del nombre de la columna
+        valor_concentracion = float(nombre_columna.split()[1].replace(',', '.'))
+    except Exception as error:
+        raise Exception(f"No se pudo extraer la concentración del nombre '{nombre_columna}'. Error: {error}")
+    concentraciones.append(valor_concentracion)
+
+# Calculamos la longitud máxima de las columnas
+longitud_max = max(len(valores) for valores in absorbancias)
+
+# Rellenamos las columnas más cortas con ceros
+absorbancias = [np.pad(valores, (0, longitud_max - len(valores)), constant_values=0) for valores in absorbancias]
+
+X_calibracion = np.array(absorbancias)
+y_calibracion = np.array(concentraciones)
+
+print("Forma de X_calibracion:", X_calibracion.shape)
+print("Concentraciones de calibración:", y_calibracion)
+
+# Extraemos los datos de la muestra
+X_muestra = datos_muestra.iloc[1:, 0].apply(pd.to_numeric, errors='coerce').dropna().values.reshape(1, -1)
+print("Forma de X_muestra:", X_muestra.shape)
+
+# Verificamos las dimensiones de X_calibracion y X_muestra
+print("Forma de X_calibracion antes del ajuste:", X_calibracion.shape)
+print("Forma de X_muestra antes del ajuste:", X_muestra.shape)
+
+# Hacemos el ajuste de X_muestra para que coincida con X_calibracion
+if X_calibracion.shape[1] > X_muestra.shape[1]:
+    # Rellenamos X_muestra con ceros
+    X_muestra = np.pad(X_muestra, ((0, 0), (0, X_calibracion.shape[1] - X_muestra.shape[1])), constant_values=0)
+elif X_calibracion.shape[1] < X_muestra.shape[1]:
+    # Recortamos X_muestra
+    X_muestra = X_muestra[:, :X_calibracion.shape[1]]
+
+# Verificamos las dimensiones después del ajuste
+print("Forma de X_calibracion después del ajuste:", X_calibracion.shape)
+print("Forma de X_muestra después del ajuste:", X_muestra.shape)
+
+# Procesamos mediante el escalado
+escalador = StandardScaler()
+X_calibracion_escalado = escalador.fit_transform(X_calibracion)
+X_muestra_escalado = escalador.transform(X_muestra)
+
+# Definimos la red neuronal
+modelo = Sequential()
+modelo.add(Dense(64, activation='relu', input_shape=(X_calibracion_escalado.shape[1],)))
+modelo.add(Dropout(0.1))
+modelo.add(Dense(32, activation='relu'))
+modelo.add(Dense(1, activation='linear'))
+
+modelo.compile(optimizer='adam', loss='mse', metrics=['mae'])
+modelo.summary()
+
+# Entrenamos el modelo
+detener_temprano = EarlyStopping(monitor='loss', patience=10, restore_best_weights=True)
+
+historial = modelo.fit(X_calibracion_escalado, y_calibracion,
+                    epochs=100,
+                    batch_size=1,
+                    callbacks=[detener_temprano],
+                    verbose=1)
+
+# Se hace la predicción para la muestra
+resultado_prediccion = modelo.predict(X_muestra_escalado)
+print(f"La concentración predicha para la muestra es: {resultado_prediccion[0][0]:.4f} ppm")

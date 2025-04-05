@@ -36,6 +36,7 @@ $$
 - Se implementó un programa que utiliza el método gráfico para determinar el coeficiente de resistencia $c$ necesario para que un paracaidista de masa $m = 68.1$ kg tenga una velocidad de $40$ m/s después de una caída libre de $t = 10$ s. 
 
 - Se obtuvo el siguiente resultado:
+
 ![Gráfico de EDO](coef_resist.png)
 
 ## Uso
